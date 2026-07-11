@@ -7,7 +7,7 @@ import csv
 app = Flask(__name__)
 
 # ============================================================
-# HTML TEMPLATE (LENGKAP DENGAN KAMERA + GPS)
+# HTML TEMPLATE (dengan semua fitur)
 # ============================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -50,7 +50,6 @@ HTML_TEMPLATE = """
 <div class="container" id="app">
     <h2>📸 Absensi Selfie</h2>
 
-    <!-- HALAMAN LOGIN -->
     <div id="loginPage">
         <input type="text" id="username" placeholder="Username" required>
         <input type="password" id="password" placeholder="Password" required>
@@ -58,7 +57,6 @@ HTML_TEMPLATE = """
         <div id="loginStatus" class="status hidden"></div>
     </div>
 
-    <!-- HALAMAN DASHBOARD -->
     <div id="dashboardPage" class="hidden">
         <p style="text-align:center;font-weight:bold;color:#1a73e8;" id="displayNama"></p>
         <div id="lokasiInfo">📍 Mengambil lokasi...</div>
@@ -85,9 +83,7 @@ HTML_TEMPLATE = """
 </div>
 
 <script>
-// ============================================================
-// DATA USER (48 KARYAWAN)
-// ============================================================
+// DATA USER (48 karyawan)
 var users = {
     "Resti": "0001", "Sandi": "0002", "Dian Supriatna": "0003",
     "Rafly": "0004", "Trisna": "0005", "Fitri Yulita": "0006",
@@ -107,9 +103,6 @@ var users = {
     "Nirwan Maulana": "0046", "Kanda": "0047", "Nadwa": "0048"
 };
 
-// ============================================================
-// VARIABEL GLOBAL
-// ============================================================
 var currentUser = null;
 var currentKategori = null;
 var latitude = null;
@@ -117,9 +110,6 @@ var longitude = null;
 var capturedImage = null;
 var stream = null;
 
-// ============================================================
-// FUNGSI LOGIN
-// ============================================================
 function login() {
     var username = document.getElementById('username').value.trim();
     var password = document.getElementById('password').value.trim();
@@ -146,9 +136,6 @@ function login() {
     }
 }
 
-// ============================================================
-// FUNGSI LOKASI GPS
-// ============================================================
 function getLocation() {
     if (!navigator.geolocation) {
         document.getElementById('lokasiInfo').textContent = '⚠️ GPS tidak didukung.';
@@ -167,9 +154,6 @@ function getLocation() {
     );
 }
 
-// ============================================================
-// FUNGSI KAMERA
-// ============================================================
 function ambilFoto() {
     var video = document.getElementById('video');
     var canvas = document.getElementById('canvas');
@@ -211,9 +195,6 @@ function ambilGambar() {
     setStatus('📸 Selfie berhasil!', 'success');
 }
 
-// ============================================================
-// FUNGSI PILIH ABSENSI
-// ============================================================
 function pilihAbsen(kategori) {
     if (!currentUser) { setStatus('❌ Login dulu!', 'error'); return; }
     if (latitude === null || longitude === null) { setStatus('⏳ Tunggu GPS...', 'info'); return; }
@@ -221,9 +202,6 @@ function pilihAbsen(kategori) {
     setStatus('📋 Pilih "Ambil Selfie" untuk ' + kategori, 'info');
 }
 
-// ============================================================
-// FUNGSI SUBMIT ABSENSI
-// ============================================================
 function submitAbsen() {
     if (!currentKategori) { setStatus('❌ Pilih absensi!', 'error'); return; }
     if (!capturedImage) { setStatus('❌ Ambil selfie dulu!', 'error'); return; }
@@ -262,9 +240,6 @@ function submitAbsen() {
     });
 }
 
-// ============================================================
-// FUNGSI LOGOUT
-// ============================================================
 function logout() {
     if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
     currentUser = null; capturedImage = null; currentKategori = null;
@@ -290,14 +265,14 @@ function setStatus(msg, type) {
 """
 
 # ============================================================
-# ROUTE: HALAMAN UTAMA
+# ROUTE HALAMAN UTAMA
 # ============================================================
 @app.route('/')
 def index():
     return render_template_string(HTML_TEMPLATE)
 
 # ============================================================
-# ROUTE: TERIMA DATA ABSENSI
+# ROUTE TERIMA ABSENSI
 # ============================================================
 @app.route('/absen', methods=['POST'])
 def absen():
@@ -309,7 +284,6 @@ def absen():
         lon = data.get('longitude')
         foto_base64 = data.get('foto')
 
-        # Buat timestamp
         now = datetime.datetime.now()
         timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
         filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{nama}.jpg"
@@ -340,7 +314,7 @@ def absen():
         }), 500
 
 # ============================================================
-# JALANKAN APLIKASI (untuk local testing)
+# JALANKAN APLIKASI (untuk local testing & production)
 # ============================================================
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
