@@ -1,0 +1,347 @@
+from flask import Flask, request, render_template_string, jsonify
+import datetime
+import base64
+import os
+import csv
+
+app = Flask(__name__)
+
+# ============================================================
+# HTML TEMPLATE (LENGKAP DENGAN KAMERA + GPS)
+# ============================================================
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Absensi Selfie</title>
+    <style>
+        * { box-sizing: border-box; font-family: Arial, sans-serif; }
+        body { background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
+        .container { max-width: 450px; width: 100%; background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        h2 { text-align: center; color: #1a73e8; margin-bottom: 20px; }
+        input, button { width: 100%; padding: 14px; margin: 8px 0; border: 1px solid #ddd; border-radius: 10px; font-size: 16px; }
+        button { background: #1a73e8; color: white; font-weight: bold; border: none; cursor: pointer; transition: 0.3s; }
+        button:hover { background: #1557b0; }
+        button:disabled { background: #aaa; cursor: not-allowed; }
+        .btn-absen { background: #34a853; }
+        .btn-absen:hover { background: #2d9248; }
+        .btn-danger { background: #ea4335; }
+        .btn-danger:hover { background: #c62828; }
+        .btn-warning { background: #fbbc04; color: #333; }
+        .btn-warning:hover { background: #e5a800; }
+        .btn-kamera { background: #8e44ad; }
+        .btn-kamera:hover { background: #732d91; }
+        video, canvas { width: 100%; border-radius: 10px; margin: 10px 0; background: #000; }
+        #preview { display: none; margin: 10px 0; }
+        #preview img { width: 100%; border-radius: 10px; border: 2px solid #1a73e8; }
+        .status { padding: 12px; border-radius: 8px; margin: 10px 0; text-align: center; font-weight: bold; }
+        .status-success { background: #d4edda; color: #155724; }
+        .status-error { background: #f8d7da; color: #721c24; }
+        .status-info { background: #d1ecf1; color: #0c5460; }
+        .hidden { display: none; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        #lokasiInfo { background: #e8f0fe; padding: 10px; border-radius: 8px; margin: 10px 0; font-size: 14px; color: #1a73e8; }
+        .footer { text-align: center; margin-top: 15px; font-size: 12px; color: #888; }
+    </style>
+</head>
+<body>
+<div class="container" id="app">
+    <h2>📸 Absensi Selfie</h2>
+
+    <!-- HALAMAN LOGIN -->
+    <div id="loginPage">
+        <input type="text" id="username" placeholder="Username" required>
+        <input type="password" id="password" placeholder="Password" required>
+        <button onclick="login()">🔐 Login</button>
+        <div id="loginStatus" class="status hidden"></div>
+    </div>
+
+    <!-- HALAMAN DASHBOARD -->
+    <div id="dashboardPage" class="hidden">
+        <p style="text-align:center;font-weight:bold;color:#1a73e8;" id="displayNama"></p>
+        <div id="lokasiInfo">📍 Mengambil lokasi...</div>
+
+        <div class="grid-2">
+            <button class="btn-absen" onclick="pilihAbsen('Masuk')">✅ Masuk</button>
+            <button class="btn-warning" onclick="pilihAbsen('Ishoma')">☕ Ishoma</button>
+            <button class="btn-warning" onclick="pilihAbsen('SelesaiIshoma')">🔙 Selesai Ishoma</button>
+            <button class="btn-danger" onclick="pilihAbsen('Pulang')">🏠 Pulang</button>
+        </div>
+
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <div id="preview"><img id="fotoSelfie"></div>
+
+        <button class="btn-kamera" onclick="ambilFoto()">📷 Ambil Selfie</button>
+        <button id="submitBtn" onclick="submitAbsen()" disabled>✅ Kirim Absensi</button>
+
+        <div id="status" class="status hidden"></div>
+        <button onclick="logout()" style="background:#888;margin-top:15px;">🚪 Logout</button>
+    </div>
+
+    <div class="footer">© Sistem Absensi Online</div>
+</div>
+
+<script>
+// ============================================================
+// DATA USER (48 KARYAWAN)
+// ============================================================
+var users = {
+    "Resti": "0001", "Sandi": "0002", "Dian Supriatna": "0003",
+    "Rafly": "0004", "Trisna": "0005", "Fitri Yulita": "0006",
+    "Diana": "0007", "Fitriani": "0008", "Danda": "0009",
+    "Dede Rahmawati": "0010", "Wismi": "0011", "Muhammad Firgi": "0012",
+    "Riza Ramdhani": "0013", "Ade Sumarna": "0014", "Riani Atika": "0015",
+    "Viola": "0016", "Ade Kurniawan": "0017", "Andri Ginanjar": "0018",
+    "Alan Setiawan": "0019", "Pangestu": "0020", "Sobar": "0021",
+    "Kustaman": "0022", "Wandi": "0023", "Wanto": "0024",
+    "Asep": "0025", "Lutfi": "0026", "M Rizki": "0027",
+    "Aldi M Sudesta": "0028", "Rina Suhartina": "0029", "M Ramdani": "0030",
+    "Yuni Artin": "0031", "Hendra": "0032", "Riki Irwan": "0033",
+    "Eka Purnama": "0034", "Iwan Setiawan": "0035", "Fembi Anzas": "0036",
+    "Winda Fauziah": "0037", "Wawang Triyani": "0038", "Ridwan": "0039",
+    "Ati": "0040", "Amalia": "0041", "Asti": "0042",
+    "Rian Gunawan": "0043", "Eko": "0044", "Jaka Gunawan": "0045",
+    "Nirwan Maulana": "0046", "Kanda": "0047", "Nadwa": "0048"
+};
+
+// ============================================================
+// VARIABEL GLOBAL
+// ============================================================
+var currentUser = null;
+var currentKategori = null;
+var latitude = null;
+var longitude = null;
+var capturedImage = null;
+var stream = null;
+
+// ============================================================
+// FUNGSI LOGIN
+// ============================================================
+function login() {
+    var username = document.getElementById('username').value.trim();
+    var password = document.getElementById('password').value.trim();
+    var statusDiv = document.getElementById('loginStatus');
+
+    if (!username || !password) {
+        statusDiv.className = 'status status-error';
+        statusDiv.textContent = '❌ Username dan password wajib diisi!';
+        statusDiv.classList.remove('hidden');
+        return;
+    }
+
+    if (users.hasOwnProperty(username) && users[username] === password) {
+        currentUser = username;
+        document.getElementById('displayNama').textContent = '👋 Selamat datang, ' + currentUser;
+        document.getElementById('loginPage').classList.add('hidden');
+        document.getElementById('dashboardPage').classList.remove('hidden');
+        getLocation();
+        statusDiv.classList.add('hidden');
+    } else {
+        statusDiv.className = 'status status-error';
+        statusDiv.textContent = '❌ Username atau password salah!';
+        statusDiv.classList.remove('hidden');
+    }
+}
+
+// ============================================================
+// FUNGSI LOKASI GPS
+// ============================================================
+function getLocation() {
+    if (!navigator.geolocation) {
+        document.getElementById('lokasiInfo').textContent = '⚠️ GPS tidak didukung.';
+        return;
+    }
+    navigator.geolocation.getCurrentPosition(
+        pos => {
+            latitude = pos.coords.latitude;
+            longitude = pos.coords.longitude;
+            document.getElementById('lokasiInfo').innerHTML =
+                '📍 ' + latitude.toFixed(6) + ', ' + longitude.toFixed(6) +
+                ' (akurasi ' + Math.round(pos.coords.accuracy) + 'm)';
+        },
+        err => document.getElementById('lokasiInfo').textContent = '⚠️ Gagal GPS: ' + err.message,
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
+}
+
+// ============================================================
+// FUNGSI KAMERA
+// ============================================================
+function ambilFoto() {
+    var video = document.getElementById('video');
+    var canvas = document.getElementById('canvas');
+    var preview = document.getElementById('preview');
+    var fotoSelfie = document.getElementById('fotoSelfie');
+
+    if (stream && stream.active) { ambilGambar(); return; }
+
+    setStatus('📷 Meminta akses kamera...', 'info');
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+        .then(s => {
+            stream = s;
+            video.srcObject = s;
+            video.play();
+            video.onloadedmetadata = () => ambilGambar();
+        })
+        .catch(err => {
+            let msg = '⚠️ Gagal kamera: ';
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
+                msg += 'Izin ditolak. Buka Settings → Chrome → Camera → Allow, lalu refresh.';
+            else
+                msg += err.message;
+            setStatus(msg, 'error');
+        });
+}
+
+function ambilGambar() {
+    var video = document.getElementById('video');
+    var canvas = document.getElementById('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    capturedImage = canvas.toDataURL('image/jpeg', 0.85);
+    document.getElementById('fotoSelfie').src = capturedImage;
+    document.getElementById('preview').style.display = 'block';
+    document.getElementById('submitBtn').disabled = false;
+    setStatus('📸 Selfie berhasil!', 'success');
+}
+
+// ============================================================
+// FUNGSI PILIH ABSENSI
+// ============================================================
+function pilihAbsen(kategori) {
+    if (!currentUser) { setStatus('❌ Login dulu!', 'error'); return; }
+    if (latitude === null || longitude === null) { setStatus('⏳ Tunggu GPS...', 'info'); return; }
+    currentKategori = kategori;
+    setStatus('📋 Pilih "Ambil Selfie" untuk ' + kategori, 'info');
+}
+
+// ============================================================
+// FUNGSI SUBMIT ABSENSI
+// ============================================================
+function submitAbsen() {
+    if (!currentKategori) { setStatus('❌ Pilih absensi!', 'error'); return; }
+    if (!capturedImage) { setStatus('❌ Ambil selfie dulu!', 'error'); return; }
+    if (latitude === null || longitude === null) { setStatus('⏳ Tunggu GPS...', 'info'); return; }
+
+    document.getElementById('submitBtn').disabled = true;
+    setStatus('⏳ Mengirim...', 'info');
+
+    fetch('/absen', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            nama: currentUser,
+            kategori: currentKategori,
+            latitude: latitude,
+            longitude: longitude,
+            foto: capturedImage
+        })
+    })
+    .then(res => res.json())
+    .then(result => {
+        if (result.success) {
+            setStatus('✅ ' + result.message + ' pada ' + result.waktu, 'success');
+            capturedImage = null;
+            document.getElementById('preview').style.display = 'none';
+            document.getElementById('submitBtn').disabled = true;
+            currentKategori = null;
+        } else {
+            setStatus('❌ ' + result.message, 'error');
+            document.getElementById('submitBtn').disabled = false;
+        }
+    })
+    .catch(err => {
+        setStatus('❌ Error: ' + err.message, 'error');
+        document.getElementById('submitBtn').disabled = false;
+    });
+}
+
+// ============================================================
+// FUNGSI LOGOUT
+// ============================================================
+function logout() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    currentUser = null; capturedImage = null; currentKategori = null;
+    document.getElementById('dashboardPage').classList.add('hidden');
+    document.getElementById('loginPage').classList.remove('hidden');
+    document.getElementById('preview').style.display = 'none';
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('status').classList.add('hidden');
+}
+
+function setStatus(msg, type) {
+    var div = document.getElementById('status');
+    div.textContent = msg;
+    div.className = 'status';
+    if (type === 'success') div.className += ' status-success';
+    else if (type === 'error') div.className += ' status-error';
+    else if (type === 'info') div.className += ' status-info';
+    div.classList.remove('hidden');
+}
+</script>
+</body>
+</html>
+"""
+
+# ============================================================
+# ROUTE: HALAMAN UTAMA
+# ============================================================
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
+
+# ============================================================
+# ROUTE: TERIMA DATA ABSENSI
+# ============================================================
+@app.route('/absen', methods=['POST'])
+def absen():
+    try:
+        data = request.get_json()
+        nama = data.get('nama')
+        kategori = data.get('kategori')
+        lat = data.get('latitude')
+        lon = data.get('longitude')
+        foto_base64 = data.get('foto')
+
+        # Buat timestamp
+        now = datetime.datetime.now()
+        timestamp_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        filename = f"{now.strftime('%Y%m%d_%H%M%S')}_{nama}.jpg"
+
+        # Simpan foto
+        with open(filename, 'wb') as f:
+            f.write(base64.b64decode(foto_base64.split(',')[1]))
+
+        # Simpan ke CSV
+        csv_file = 'absensi.csv'
+        file_exists = os.path.isfile(csv_file)
+        with open(csv_file, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(['Waktu', 'Nama', 'Kategori', 'Latitude', 'Longitude', 'Foto'])
+            writer.writerow([timestamp_str, nama, kategori, lat, lon, filename])
+
+        return jsonify({
+            'success': True,
+            'message': 'Absen berhasil disimpan!',
+            'waktu': timestamp_str
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+# ============================================================
+# JALANKAN APLIKASI (untuk local testing)
+# ============================================================
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
