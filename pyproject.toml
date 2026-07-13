@@ -1,2 +1,12 @@
+[project]
+name = "absensi-app"
+version = "1.0.0"
+description = "Sistem Absensi Selfie + GPS"
+requires-python = ">=3.8"
+dependencies = [
+    "Flask",
+    "gunicorn"
+]
+
 [tool.vercel]
 entrypoint = "app:app"
